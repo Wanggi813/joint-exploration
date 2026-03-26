@@ -454,21 +454,31 @@
         });
 
         heatmap = new naver.maps.visualization.HeatMap({
-          map: null,
-          data: validData.map(item => ({
-            location: new naver.maps.LatLng(
-              Number(item['위도']),
-              Number(item['경도'])
-            ),
-            weight: normalizeWeight(
-              Number(item['소리데이터']),
-              valueRange.min,
-              valueRange.max
-            )
-          })),
-          radius: 28,
-          opacity: 0.7
-        });
+  map: null,
+  data: validData.map(item => ({
+    location: new naver.maps.LatLng(
+      Number(item['위도']),
+      Number(item['경도'])
+    ),
+    weight: normalizeWeight(
+      Number(item['소리데이터']),
+      valueRange.min,
+      valueRange.max
+    )
+  })),
+
+  radius: 32,
+  opacity: 0.85,
+
+  // ⭐ 핵심 설정
+  maxIntensity: 1,
+
+  gradient: [
+    'rgba(0,255,0,0)',     // 초록 (낮음)
+    'rgba(255,255,0,0.6)', // 노랑
+    'rgba(255,0,0,0.9)'    // 빨강 (높음)
+  ]
+});
 
         renderList(validData);
         if (validData.length) fitAllMarkers();
