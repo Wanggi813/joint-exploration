@@ -265,6 +265,44 @@
       return 0.1 + 0.9 * Math.max(0, Math.min(1, ratio));
     }
 
+function aggregateNearbyPointsByAverage(data, cellSize = 0.01) {
+  const buckets = new Map();
+
+  data.forEach(item => {
+    const lat = Number(item['위도']);
+    const lng = Number(item['경도']);
+    const sound = Number(item['소리데이터']);
+
+    if (Number.isNaN(lat) || Number.isNaN(lng) || Number.isNaN(sound)) return;
+
+    const latKey = Math.round(lat / cellSize);
+    const lngKey = Math.round(lng / cellSize);
+    const key = `${latKey}_${lngKey}`;
+
+    if (!buckets.has(key)) {
+      buckets.set(key, {
+        latSum: 0,
+        lngSum: 0,
+        soundSum: 0,
+        count: 0
+      });
+    }
+
+    const bucket = buckets.get(key);
+    bucket.latSum += lat;
+    bucket.lngSum += lng;
+    bucket.soundSum += sound;
+    bucket.count += 1;
+  });
+
+  return Array.from(buckets.values()).map(bucket => ({
+    lat: bucket.latSum / bucket.count,
+    lng: bucket.lngSum / bucket.count,
+    avgSound: bucket.soundSum / bucket.count,
+    count: bucket.count
+  }));
+}
+    
     function updateOverlayMode() {
       infoWindows.forEach(iw => iw.close());
       const zoom = map.getZoom();
@@ -453,33 +491,27 @@
           infoWindows.push(infoWindow);
         });
 
-        heatmap = new naver.maps.visualization.HeatMap({
+const aggregatedHeatmapData = aggregateNearbyPointsByAverage(validData, 0.005);
+
+heatmap = new naver.maps.visualization.HeatMap({
   map: null,
-  data: validData.map(item => ({
-    location: new naver.maps.LatLng(
-      Number(item['위도']),
-      Number(item['경도'])
-    ),
+  data: aggregatedHeatmapData.map(item => ({
+    location: new naver.maps.LatLng(item.lat, item.lng),
     weight: normalizeWeight(
-      Number(item['소리데이터']),
+      item.avgSound,
       valueRange.min,
       valueRange.max
     )
   })),
-
   radius: 32,
   opacity: 0.85,
-
-  // ⭐ 핵심 설정
   maxIntensity: 1,
-
   gradient: [
-    'rgba(0,255,0,0)',     // 초록 (낮음)
-    'rgba(255,255,0,0.6)', // 노랑
-    'rgba(255,0,0,0.9)'    // 빨강 (높음)
+    'rgba(0,255,0,0)',
+    'rgba(255,255,0,0.6)',
+    'rgba(255,0,0,0.9)'
   ]
 });
-
         renderList(validData);
         if (validData.length) fitAllMarkers();
         updateOverlayMode();
