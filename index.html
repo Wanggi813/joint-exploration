@@ -305,23 +305,49 @@
     }
 
     function createAverageCircleOverlays(data) {
-      const aggregated = aggregateNearbyPointsByAverage(data, 0.005);
+  const aggregated = aggregateNearbyPointsByAverage(data, 0.005);
+  averageCircles = [];
 
-      averageCircles = aggregated.map(item => {
-        const color = getColorByValue(item.avgSound, valueRange.min, valueRange.max);
+  aggregated.forEach(item => {
+    const color = getColorByValue(item.avgSound, valueRange.min, valueRange.max);
+    const center = new naver.maps.LatLng(item.lat, item.lng);
 
-        return new naver.maps.Circle({
-          map: null,
-          center: new naver.maps.LatLng(item.lat, item.lng),
-          radius: 350,
-          strokeWeight: 2,
-          strokeColor: color,
-          strokeOpacity: 0.7,
-          fillColor: color,
-          fillOpacity: 0.28
-        });
-      });
-    }
+    averageCircles.push(
+      new naver.maps.Circle({
+        map: null,
+        center,
+        radius: 800,
+        strokeWeight: 0,
+        fillColor: color,
+        fillOpacity: 0.05
+      }),
+      new naver.maps.Circle({
+        map: null,
+        center,
+        radius: 580,
+        strokeWeight: 0,
+        fillColor: color,
+        fillOpacity: 0.10
+      }),
+      new naver.maps.Circle({
+        map: null,
+        center,
+        radius: 380,
+        strokeWeight: 0,
+        fillColor: color,
+        fillOpacity: 0.18
+      }),
+      new naver.maps.Circle({
+        map: null,
+        center,
+        radius: 220,
+        strokeWeight: 0,
+        fillColor: color,
+        fillOpacity: 0.28
+      })
+    );
+  });
+}
 
     function aggregateNearbyPointsByAverage(data, cellSize = 0.01) {
       const buckets = new Map();
