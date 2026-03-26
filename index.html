@@ -210,10 +210,10 @@
     let markers = [];
     let infoWindows = [];
     let markerEntries = [];
+    let averageCircles = [];
     let valueRange = { min: 0, max: 0 };
-    let heatmap = null;
     let currentData = [];
-    const heatmapZoomThreshold = 12;
+    const overlayZoomThreshold = 12;
 
     function escapeHtml(text) {
       return String(text ?? '')
@@ -266,6 +266,63 @@
       return 0.1 + 0.9 * Math.max(0, Math.min(1, ratio));
     }
 
+    function aggregateNearbyPointsByAverage(data, cellSize = 0.005) {
+      const buckets = new Map();
+
+      data.forEach(item => {
+        const lat = Number(item['위도']);
+        const lng = Number(item['경도']);
+        const sound = Number(item['소리데이터']);
+
+        if (Number.isNaN(lat) || Number.isNaN(lng) || Number.isNaN(sound)) return;
+
+        const latKey = Math.round(lat / cellSize);
+        const lngKey = Math.round(lng / cellSize);
+        const key = `${latKey}_${lngKey}`;
+
+        if (!buckets.has(key)) {
+          buckets.set(key, {
+            latSum: 0,
+            lngSum: 0,
+            soundSum: 0,
+            count: 0
+          });
+        }
+
+        const bucket = buckets.get(key);
+        bucket.latSum += lat;
+        bucket.lngSum += lng;
+        bucket.soundSum += sound;
+        bucket.count += 1;
+      });
+
+      return Array.from(buckets.values()).map(bucket => ({
+        lat: bucket.latSum / bucket.count,
+        lng: bucket.lngSum / bucket.count,
+        avgSound: bucket.soundSum / bucket.count,
+        count: bucket.count
+      }));
+    }
+
+    function createAverageCircleOverlays(data) {
+      const aggregated = aggregateNearbyPointsByAverage(data, 0.005);
+
+      averageCircles = aggregated.map(item => {
+        const color = getColorByValue(item.avgSound, valueRange.min, valueRange.max);
+
+        return new naver.maps.Circle({
+          map: null,
+          center: new naver.maps.LatLng(item.lat, item.lng),
+          radius: 350,
+          strokeWeight: 2,
+          strokeColor: color,
+          strokeOpacity: 0.7,
+          fillColor: color,
+          fillOpacity: 0.28
+        });
+      });
+    }
+
     function aggregateNearbyPointsByAverage(data, cellSize = 0.01) {
       const buckets = new Map();
 
@@ -306,15 +363,12 @@
 
     function updateOverlayMode() {
       infoWindows.forEach(iw => iw.close());
+
       const zoom = map.getZoom();
-      const showMarkers = zoom >= heatmapZoomThreshold;
+      const showMarkers = zoom >= overlayZoomThreshold;
 
       markers.forEach(marker => marker.setMap(showMarkers ? map : null));
-      infoWindows.forEach(iw => iw.close());
-
-      if (heatmap) {
-        heatmap.setMap(showMarkers ? null : map);
-      }
+      averageCircles.forEach(circle => circle.setMap(showMarkers ? null : map));
     }
 
     function parseCSV(csvText) {
@@ -367,15 +421,14 @@
     function clearMap() {
       markers.forEach(marker => marker.setMap(null));
       markers = [];
+
       infoWindows.forEach(iw => iw.close());
       infoWindows = [];
+
       markerEntries = [];
 
-
-      if (heatmap) {
-        heatmap.setMap(null);
-        heatmap = null;
-      }
+      averageCircles.forEach(circle => circle.setMap(null));
+      averageCircles = [];
     }
 
     function createInfoHtml(item) {
@@ -522,26 +575,9 @@
 
         const aggregatedHeatmapData = aggregateNearbyPointsByAverage(validData, 0.005);
 
-        heatmap = new naver.maps.visualization.HeatMap({
-          map: null,
-          data: aggregatedHeatmapData.map(item => ({
-            location: new naver.maps.LatLng(item.lat, item.lng),
-            weight: normalizeWeight(
-              item.avgSound,
-              valueRange.min,
-              valueRange.max
-            )
-          })),
-          radius: 32,
-          opacity: 0.85,
-          maxIntensity: 1,
-          gradient: [
-            'rgba(0,255,0,0)',
-            'rgba(255,255,0,0.6)',
-            'rgba(255,0,0,0.9)'
-          ]
-        });
         renderList(validData);
+        createAverageCircleOverlays(validData);
+        
         if (validData.length) fitAllMarkers();
         updateOverlayMode();
 
