@@ -20,8 +20,10 @@
 
     .wrap {
       display: grid;
-      grid-template-columns: 1fr 360px;
+      grid-template-columns: minmax(0, 1fr) 380px;
       min-height: 100vh;
+      height: 100vh;
+      overflow: hidden;
     }
 
     #map {
@@ -30,11 +32,14 @@
     }
 
     .panel {
-      background:
-        #ffffff;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 0;
+      background: #ffffff;
       border-left: 1px solid #e5e7eb;
       padding: 20px;
-      overflow-y: auto;
+      overflow: hidden;
     }
 
     h1 {
@@ -51,23 +56,29 @@
 
     .card {
       background: #f8fafc;
-      border:
-        1px solid #e5e7eb;
+      border: 1px solid #e5e7eb;
       border-radius: 14px;
       padding: 14px;
       margin-bottom: 12px;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+
+    .card:hover {
+      background: #eef2ff;
     }
 
     .meta {
       font-size: 13px;
-      color:
-        #6b7280;
+      color: #6b7280;
       margin-top: 6px;
       line-height: 1.5;
     }
 
     .value {
-      display: inline-block;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
       margin-top: 8px;
       padding: 6px 10px;
       background: #e0f2fe;
@@ -78,6 +89,7 @@
 
     .toolbar {
       display: flex;
+      flex-wrap: wrap;
       gap: 8px;
       margin: 14px 0 18px;
     }
@@ -90,6 +102,8 @@
       padding: 10px 14px;
       font-size: 14px;
       cursor: pointer;
+      min-width: 0;
+      flex: 1 1 auto;
     }
 
     button.secondary {
@@ -109,8 +123,7 @@
     }
 
     .empty {
-      color:
-        #9ca3af;
+      color: #9ca3af;
       font-size: 14px;
       padding: 10px 0;
     }
@@ -119,8 +132,7 @@
       min-width: 220px;
       max-width: 280px;
       padding: 4px;
-      font-size:
-        13px;
+      font-size: 13px;
       line-height: 1.55;
     }
 
@@ -129,11 +141,6 @@
     }
 
     @media (max-width: 900px) {
-      .panel {
-        max-height:
-          40vh;
-      }
-
       .wrap {
         grid-template-columns: 1fr;
       }
@@ -146,21 +153,44 @@
         border-left: 0;
         border-top: 1px solid #e5e7eb;
       }
+
+      .toolbar button {
+        flex: 1 1 48%;
+      }
     }
 
-    .wrap {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 380px;
-      height: 100vh;
-      overflow: hidden;
-    }
+    @media (max-width: 640px) {
+      #map {
+        height: 55vh;
+      }
 
-    .panel {
-      display: flex;
-      flex-direction: column;
-      min-width: 0;
-      min-height: 0;
-      overflow: hidden;
+      .panel {
+        padding: 16px 14px;
+      }
+
+      h1 {
+        font-size: 20px;
+      }
+
+      .desc {
+        font-size: 13px;
+      }
+
+      .toolbar {
+        gap: 6px;
+      }
+
+      .toolbar button {
+        flex: 1 1 100%;
+      }
+
+      .card {
+        padding: 12px;
+      }
+
+      .value {
+        font-size: 13px;
+      }
     }
 
     #list {
