@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>인천 공동탐구 지도</title>
+  <title>인천 미세먼지 지도</title>
   <script src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=0q0a3jnlqu&submodules=visualization"></script>
   <style>
     * {
@@ -212,21 +212,28 @@
     <aside class="panel">
       <h1>인천 공동탐구 지도</h1>
       <p class="desc">
-        구글 시트에 입력된 위도·경도·소리데이터를 읽어 네이버 지도에 표시합니다.
+        구글 시트에 입력된 위도·경도·미세먼지 데이터와 공공데이터포털 실시간 측정소 데이터를 함께 네이버 지도에 표시합니다.
       </p>
 
       <div class="toolbar">
-        <button onclick="loadData()">데이터 새로고침</button>
+        <button onclick="refreshAll()">데이터 새로고침</button>
         <button class="secondary" onclick="fitAllMarkers()">전체 보기</button>
       </div>
 
       <div id="status" class="status">데이터를 불러오는 중...</div>
+      <div id="officialStatus" class="status"></div>
       <div id="list"></div>
     </aside>
   </div>
 
   <script>
-    const csvUrl = 'https://docs.google.com/spreadsheets/d/13Gc3kNyYEFZqzdl53J80kdvvkiyQZIIAYJ4cUYMv9Uc/export?format=csv';
+    const csvUrl = 'https://docs.google.com/spreadsheets/d/1TwzHZnKh4WYYGH8sM5cA1EWT6y5WZ6ZA7Vn5x9v2yqg/export?format=csv&gid=0';
+
+    // 공공데이터포털 - 한국환경공단 에어코리아 대기오염정보
+    const airKoreaServiceKey = '80ac8e46d3319fadc8bca056e2228f5f76771a34327295b9b8cb5a61e05c28b9';
+    const airKoreaBase = 'https://apis.data.go.kr/B552584/ArpltnInforInqireSvc';
+    const msrstnBase = 'https://apis.data.go.kr/B552584/MsrstnInfoInqireSvc';
+    const targetSido = '인천';
 
     const map = new naver.maps.Map('map', {
       center: new naver.maps.LatLng(37.4563, 126.7052),
@@ -306,9 +313,9 @@
       data.forEach(item => {
         const lat = Number(item['위도']);
         const lng = Number(item['경도']);
-        const sound = Number(item['소리데이터']);
+        const dust = Number(item['미세먼지']);
 
-        if (Number.isNaN(lat) || Number.isNaN(lng) || Number.isNaN(sound)) return;
+        if (Number.isNaN(lat) || Number.isNaN(lng) || Number.isNaN(dust)) return;
 
         const latKey = Math.round(lat / cellSize);
         const lngKey = Math.round(lng / cellSize);
@@ -318,7 +325,7 @@
           buckets.set(key, {
             latSum: 0,
             lngSum: 0,
-            soundSum: 0,
+            dustSum: 0,
             count: 0
           });
         }
@@ -326,99 +333,61 @@
         const bucket = buckets.get(key);
         bucket.latSum += lat;
         bucket.lngSum += lng;
-        bucket.soundSum += sound;
+        bucket.dustSum += dust;
         bucket.count += 1;
       });
 
       return Array.from(buckets.values()).map(bucket => ({
         lat: bucket.latSum / bucket.count,
         lng: bucket.lngSum / bucket.count,
-        avgSound: bucket.soundSum / bucket.count,
+        avgDust: bucket.dustSum / bucket.count,
         count: bucket.count
       }));
     }
 
     function createAverageCircleOverlays(data) {
-  const aggregated = aggregateNearbyPointsByAverage(data, 0.005);
-  averageCircles = [];
+      const aggregated = aggregateNearbyPointsByAverage(data, 0.005);
+      averageCircles = [];
 
-  aggregated.forEach(item => {
-    const color = getColorByValue(item.avgSound, valueRange.min, valueRange.max);
-    const center = new naver.maps.LatLng(item.lat, item.lng);
+      aggregated.forEach(item => {
+        const color = getColorByValue(item.avgDust, valueRange.min, valueRange.max);
+        const center = new naver.maps.LatLng(item.lat, item.lng);
 
-    averageCircles.push(
-      new naver.maps.Circle({
-        map: null,
-        center,
-        radius: 1200,
-        strokeWeight: 0,
-        fillColor: color,
-        fillOpacity: 0.04
-      }),
-      new naver.maps.Circle({
-        map: null,
-        center,
-        radius: 900,
-        strokeWeight: 0,
-        fillColor: color,
-        fillOpacity: 0.08
-      }),
-      new naver.maps.Circle({
-        map: null,
-        center,
-        radius: 600,
-        strokeWeight: 0,
-        fillColor: color,
-        fillOpacity: 0.15
-      }),
-      new naver.maps.Circle({
-        map: null,
-        center,
-        radius: 350,
-        strokeWeight: 0,
-        fillColor: color,
-        fillOpacity: 0.25
-      })
-    );
-  });
-}
-
-    function aggregateNearbyPointsByAverage(data, cellSize = 0.01) {
-      const buckets = new Map();
-
-      data.forEach(item => {
-        const lat = Number(item['위도']);
-        const lng = Number(item['경도']);
-        const sound = Number(item['소리데이터']);
-
-        if (Number.isNaN(lat) || Number.isNaN(lng) || Number.isNaN(sound)) return;
-
-        const latKey = Math.round(lat / cellSize);
-        const lngKey = Math.round(lng / cellSize);
-        const key = `${latKey}_${lngKey}`;
-
-        if (!buckets.has(key)) {
-          buckets.set(key, {
-            latSum: 0,
-            lngSum: 0,
-            soundSum: 0,
-            count: 0
-          });
-        }
-
-        const bucket = buckets.get(key);
-        bucket.latSum += lat;
-        bucket.lngSum += lng;
-        bucket.soundSum += sound;
-        bucket.count += 1;
+        averageCircles.push(
+          new naver.maps.Circle({
+            map: null,
+            center,
+            radius: 1200,
+            strokeWeight: 0,
+            fillColor: color,
+            fillOpacity: 0.04
+          }),
+          new naver.maps.Circle({
+            map: null,
+            center,
+            radius: 900,
+            strokeWeight: 0,
+            fillColor: color,
+            fillOpacity: 0.08
+          }),
+          new naver.maps.Circle({
+            map: null,
+            center,
+            radius: 600,
+            strokeWeight: 0,
+            fillColor: color,
+            fillOpacity: 0.15
+          }),
+          new naver.maps.Circle({
+            map: null,
+            center,
+            radius: 350,
+            strokeWeight: 0,
+            fillColor: color,
+            fillOpacity: 0.25
+          })
+        );
       });
-
-      return Array.from(buckets.values()).map(bucket => ({
-        lat: bucket.latSum / bucket.count,
-        lng: bucket.lngSum / bucket.count,
-        avgSound: bucket.soundSum / bucket.count,
-        count: bucket.count
-      }));
     }
 
     function updateOverlayMode() {
@@ -495,7 +464,7 @@
       return `
     <div class="infobox">
       <strong>${escapeHtml(item['학교명'] || '학교명 없음')}</strong><br>
-      소리데이터: ${escapeHtml(item['소리데이터'])}<br>
+      미세먼지: ${escapeHtml(item['미세먼지'])}<br>
       측정자: ${escapeHtml(item['측정자 이름'])}
     </div>
   `;
@@ -511,7 +480,7 @@
 
       list.innerHTML = data.map((item, index) => {
         const color = getColorByValue(
-          Number(item['소리데이터']),
+          Number(item['미세먼지']),
           valueRange.min,
           valueRange.max
         );
@@ -522,7 +491,7 @@
         <div class="meta">측정자: ${escapeHtml(item['측정자 이름'])}</div>
         <div class="value" style="background:${color}22; color:#111827; border:1px solid ${color}55;">
           <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${color};margin-right:6px;vertical-align:middle;"></span>
-          소리데이터: ${escapeHtml(item['소리데이터'])}
+          미세먼지: ${escapeHtml(item['미세먼지'])}
         </div>
       </div>
     `;
@@ -575,14 +544,14 @@
         const validData = rawData.filter(item => {
           const lat = Number(item['위도']);
           const lng = Number(item['경도']);
-          const sound = Number(item['소리데이터']);
-          return !Number.isNaN(lat) && !Number.isNaN(lng) && !Number.isNaN(sound);
+          const dust = Number(item['미세먼지']);
+          return !Number.isNaN(lat) && !Number.isNaN(lng) && !Number.isNaN(dust);
         });
 
-        const soundValues = validData.map(item => Number(item['소리데이터']));
+        const dustValues = validData.map(item => Number(item['미세먼지']));
         valueRange = {
-          min: soundValues.length ? Math.min(...soundValues) : 0,
-          max: soundValues.length ? Math.max(...soundValues) : 0
+          min: dustValues.length ? Math.min(...dustValues) : 0,
+          max: dustValues.length ? Math.max(...dustValues) : 0
         };
 
         currentData = validData;
@@ -595,8 +564,8 @@
           const lng = Number(item['경도']);
           const position = new naver.maps.LatLng(lat, lng);
 
-          const sound = Number(item['소리데이터']);
-          const color = getColorByValue(sound, valueRange.min, valueRange.max);
+          const dust = Number(item['미세먼지']);
+          const color = getColorByValue(dust, valueRange.min, valueRange.max);
 
           const marker = new naver.maps.Marker({
             position,
@@ -637,7 +606,7 @@
 
         renderList(validData);
         createAverageCircleOverlays(validData);
-        
+
         if (validData.length) fitAllMarkers();
         updateOverlayMode();
 
@@ -649,7 +618,149 @@
       }
     }
 
-    loadData();
+    // ── 공공데이터포털(에어코리아) 실시간 측정소 연동 ──
+    let officialMarkers = [];
+    let officialInfoWindows = [];
+
+    function createOfficialMarkerIcon(color) {
+      return {
+        content: `
+      <div style="
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
+        background: ${color};
+        border: 2px solid #1e293b;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.28);
+      "></div>
+    `,
+        anchor: new naver.maps.Point(9, 9)
+      };
+    }
+
+    function createOfficialInfoHtml(station) {
+      return `
+    <div class="infobox">
+      <strong>${escapeHtml(station.stationName)} (공식 측정소)</strong><br>
+      미세먼지(PM10): ${escapeHtml(station.pm10Value)} ㎍/㎥<br>
+      초미세먼지(PM2.5): ${escapeHtml(station.pm25Value)} ㎍/㎥<br>
+      측정시각: ${escapeHtml(station.dataTime)}
+    </div>
+  `;
+    }
+
+    function clearOfficialMarkers() {
+      officialMarkers.forEach(marker => marker.setMap(null));
+      officialMarkers = [];
+
+      officialInfoWindows.forEach(iw => iw.close());
+      officialInfoWindows = [];
+    }
+
+    async function fetchAirKoreaItems(url) {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('공공데이터 API 요청 실패: ' + response.status);
+
+      const json = await response.json();
+      const header = json?.response?.header;
+      if (header && header.resultCode !== '00') {
+        throw new Error(header.resultMsg || '공공데이터 API 오류');
+      }
+
+      return json?.response?.body?.items ?? [];
+    }
+
+    async function loadAirKoreaData() {
+      const officialStatus = document.getElementById('officialStatus');
+      officialStatus.textContent = '공식 측정소 데이터를 불러오는 중...';
+
+      try {
+        const stationListUrl = `${msrstnBase}/getMsrstnList?serviceKey=${encodeURIComponent(airKoreaServiceKey)}&returnType=json&numOfRows=100&pageNo=1&addr=${encodeURIComponent(targetSido)}`;
+        const realtimeUrl = `${airKoreaBase}/getCtprvnRltmMesureDnsty?serviceKey=${encodeURIComponent(airKoreaServiceKey)}&returnType=json&numOfRows=100&pageNo=1&sidoName=${encodeURIComponent(targetSido)}&ver=1.3`;
+
+        const [stations, readings] = await Promise.all([
+          fetchAirKoreaItems(stationListUrl),
+          fetchAirKoreaItems(realtimeUrl)
+        ]);
+
+        const stationCoords = new Map();
+        stations.forEach(station => {
+          const lat = Number(station.dmX);
+          const lng = Number(station.dmY);
+          if (Number.isNaN(lat) || Number.isNaN(lng)) return;
+          stationCoords.set(station.stationName, { lat, lng });
+        });
+
+        const officialData = readings
+          .map(item => {
+            const coords = stationCoords.get(item.stationName);
+            const pm10Value = Number(item.pm10Value);
+            if (!coords || Number.isNaN(pm10Value)) return null;
+
+            return {
+              stationName: item.stationName,
+              lat: coords.lat,
+              lng: coords.lng,
+              pm10Value,
+              pm25Value: item.pm25Value,
+              dataTime: item.dataTime
+            };
+          })
+          .filter(Boolean);
+
+        clearOfficialMarkers();
+
+        officialData.forEach(station => {
+          const color = getColorByValue(station.pm10Value, valueRange.min, valueRange.max);
+
+          const marker = new naver.maps.Marker({
+            position: new naver.maps.LatLng(station.lat, station.lng),
+            map,
+            title: station.stationName + ' (공식 측정소)',
+            icon: createOfficialMarkerIcon(color),
+            zIndex: 50
+          });
+
+          const infoWindow = new naver.maps.InfoWindow({
+            content: createOfficialInfoHtml(station),
+            borderWidth: 1,
+            backgroundColor: '#fff',
+            anchorSize: new naver.maps.Size(12, 14)
+          });
+
+          naver.maps.Event.addListener(marker, 'mouseover', () => {
+            infoWindows.forEach(iw => iw.close());
+            officialInfoWindows.forEach(iw => iw.close());
+            infoWindow.open(map, marker);
+          });
+
+          naver.maps.Event.addListener(marker, 'mouseout', () => {
+            infoWindow.close();
+          });
+
+          naver.maps.Event.addListener(marker, 'click', () => {
+            infoWindows.forEach(iw => iw.close());
+            officialInfoWindows.forEach(iw => iw.close());
+            infoWindow.open(map, marker);
+          });
+
+          officialMarkers.push(marker);
+          officialInfoWindows.push(infoWindow);
+        });
+
+        officialStatus.textContent = `공식 측정소 ${officialData.length}곳 표시 중 (${new Date().toLocaleString('ko-KR')})`;
+      } catch (error) {
+        console.error(error);
+        officialStatus.textContent = '공식 측정소 데이터를 불러오지 못했습니다: ' + error.message;
+      }
+    }
+
+    async function refreshAll() {
+      await loadData();
+      await loadAirKoreaData();
+    }
+
+    refreshAll();
   </script>
 </body>
 
