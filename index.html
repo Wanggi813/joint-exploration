@@ -160,43 +160,119 @@
     }
 
     .add-form {
-      min-width: 220px;
+      min-width: 240px;
+      max-width: 260px;
       font-size: 13px;
+      padding: 2px 2px 4px;
+    }
+
+    .add-form-header {
+      font-size: 15px;
+      font-weight: 700;
+      color: #111827;
+    }
+
+    .add-form-coords {
+      font-size: 11px;
+      color: #9ca3af;
+      margin: 2px 0 10px;
     }
 
     .add-form label {
       display: block;
       font-size: 12px;
+      font-weight: 600;
       color: #4b5563;
-      margin-top: 6px;
+      margin: 10px 0 4px;
     }
 
     .add-form input {
       width: 100%;
       box-sizing: border-box;
-      padding: 6px 8px;
-      margin-top: 4px;
-      border: 1px solid #d1d5db;
-      border-radius: 6px;
+      padding: 8px 10px;
+      border: 1.5px solid #e5e7eb;
+      border-radius: 8px;
       font-size: 13px;
+      outline: none;
+      transition: border-color 0.15s ease;
+    }
+
+    .add-form input:focus {
+      border-color: #16a34a;
+    }
+
+    .add-form-metric {
+      display: flex;
+      gap: 6px;
+    }
+
+    .add-metric-btn {
+      flex: 1;
+      padding: 8px 4px;
+      border: 1.5px solid #e5e7eb;
+      border-radius: 8px;
+      background: #f9fafb;
+      color: #6b7280;
+      font-size: 12px;
+      line-height: 1.4;
+      text-align: center;
+      transition: all 0.15s ease;
+      min-width: 0;
+    }
+
+    .add-metric-btn small {
+      font-size: 10px;
+      opacity: 0.8;
+    }
+
+    .add-metric-btn.active {
+      background: #16a34a;
+      border-color: #16a34a;
+      color: white;
     }
 
     .add-form-actions {
       display: flex;
-      gap: 6px;
-      margin-top: 10px;
+      gap: 8px;
+      margin-top: 14px;
     }
 
-    .add-form-actions button {
+    .add-form-submit {
+      flex: 2;
+      padding: 9px 8px;
+      font-size: 13px;
+      font-weight: 600;
+      background: #16a34a;
+      color: white;
+      min-width: 0;
+    }
+
+    .add-form-cancel {
       flex: 1;
-      padding: 6px 8px;
-      font-size: 12px;
+      padding: 9px 8px;
+      font-size: 13px;
+      background: #f3f4f6;
+      color: #6b7280;
+      min-width: 0;
     }
 
     .add-form-status {
-      margin-top: 6px;
-      font-size: 11px;
+      margin-top: 8px;
+      font-size: 11.5px;
       color: #6b7280;
+      min-height: 1.2em;
+    }
+
+    .date-filter {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px 10px;
+      margin-bottom: 12px;
+      border: 1.5px solid #e5e7eb;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #374151;
+      background: #f9fafb;
     }
 
     .status {
@@ -314,6 +390,10 @@
         <button class="metric-toggle" data-metric="pm25" onclick="setMetric('pm25')">초미세먼지 (PM2.5)</button>
       </div>
 
+      <select id="dateFilter" class="date-filter" onchange="onDateFilterChange(this.value)">
+        <option value="all">전체 날짜</option>
+      </select>
+
       <div id="legend" class="legend"></div>
       <p id="metricNote" class="metric-note"></p>
 
@@ -333,7 +413,7 @@
     const targetSido = '인천';
 
     // 지도 클릭 → 데이터 추가 시 저장할 Apps Script 웹앱 URL (배포 후 이 값을 교체하세요)
-    const appsScriptUrl = 'https://script.google.com/macros/s/AKfycbxymOVwvUZl2CSAJhRjTCmzuDEDjiuqn9aJjCslCQKshU-5aVXbTSJReeIJxLfcDw-I/exec';
+    const appsScriptUrl = 'https://script.google.com/macros/s/AKfycbyvPCqBtOfXojX57Pks7RoWEpKtHeWa7mEuRwIBpq8bIcT2bzQgj9g0txeRfCnG89xv/exec';
 
     const map = new naver.maps.Map('map', {
       center: new naver.maps.LatLng(37.4563, 126.7052),
@@ -360,6 +440,7 @@
     let currentData = [];
     let currentOfficialData = [];
     let currentMetric = 'pm10';
+    let currentDateFilter = 'all';
     let addDataInfoWindow = null;
     const overlayZoomThreshold = 12;
 
@@ -403,6 +484,68 @@
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+    }
+
+    // 학생 시트 열: 위도, 경도, 학교명, 측정자이름, 미세먼지(PM10), 초미세먼지(PM2.5)
+    // 한 행에는 PM10 또는 PM2.5 중 하나만 값이 채워집니다.
+    function getStudentRowMetric(item) {
+      const pm10Raw = item['미세먼지(PM10)'];
+      const pm25Raw = item['초미세먼지(PM2.5)'];
+      const pm10 = Number(pm10Raw);
+      const pm25 = Number(pm25Raw);
+
+      if (pm10Raw !== undefined && pm10Raw !== '' && !Number.isNaN(pm10)) {
+        return { metric: 'pm10', value: pm10 };
+      }
+      if (pm25Raw !== undefined && pm25Raw !== '' && !Number.isNaN(pm25)) {
+        return { metric: 'pm25', value: pm25 };
+      }
+      return null;
+    }
+
+    // '측정시간' 열에서 날짜(YYYY-MM-DD) 부분만 추출
+    function getItemDateKey(item) {
+      const raw = item['측정시간'];
+      if (!raw) return null;
+
+      const isoMatch = raw.match(/^\d{4}-\d{2}-\d{2}/);
+      if (isoMatch) return isoMatch[0];
+
+      const parsed = new Date(raw);
+      if (Number.isNaN(parsed.getTime())) return null;
+
+      const y = parsed.getFullYear();
+      const m = String(parsed.getMonth() + 1).padStart(2, '0');
+      const d = String(parsed.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    function matchesDateFilter(item) {
+      if (currentDateFilter === 'all') return true;
+      return getItemDateKey(item) === currentDateFilter;
+    }
+
+    function populateDateFilter(data) {
+      const select = document.getElementById('dateFilter');
+      const dateKeys = Array.from(new Set(data.map(getItemDateKey).filter(Boolean))).sort().reverse();
+
+      select.innerHTML = '<option value="all">전체 날짜</option>' +
+        dateKeys.map(key => `<option value="${key}">${key}</option>`).join('');
+
+      if (dateKeys.includes(currentDateFilter)) {
+        select.value = currentDateFilter;
+      } else {
+        currentDateFilter = 'all';
+        select.value = 'all';
+      }
+    }
+
+    function onDateFilterChange(value) {
+      currentDateFilter = value;
+      renderList(currentData);
+      updateMetricNote();
+      rebuildGradientOverlays();
+      updateOverlayMode();
     }
 
     function getColorByValue(value, metric = currentMetric) {
@@ -515,13 +658,17 @@
     function rebuildGradientOverlays() {
       clearGradientOverlays();
 
-      const studentPoints = currentMetric === 'pm10'
-        ? currentData.map(item => ({
+      const studentPoints = currentData
+        .map(item => {
+          const info = getStudentRowMetric(item);
+          if (!info || info.metric !== currentMetric || !matchesDateFilter(item)) return null;
+          return {
             lat: Number(item['위도']),
             lng: Number(item['경도']),
-            value: Number(item['미세먼지'])
-          }))
-        : [];
+            value: info.value
+          };
+        })
+        .filter(Boolean);
 
       const officialPoints = currentOfficialData.map(station => ({
         lat: station.lat,
@@ -561,9 +708,23 @@
       const zoom = map.getZoom();
       const showPins = zoom >= overlayZoomThreshold;
 
-      markers.forEach(marker => marker.setMap(showPins && currentMetric === 'pm10' ? map : null));
+      markerEntries.forEach(entry => {
+        const visible = showPins && entry.rowMetric === currentMetric && matchesDateFilter(entry.item);
+        entry.marker.setMap(visible ? map : null);
+      });
       officialMarkers.forEach(marker => marker.setMap(showPins ? map : null));
       gradientOverlays.forEach(circle => circle.setMap(showPins ? null : map));
+    }
+
+    function updateMetricNote() {
+      const hasStudentDataForMetric = currentData.some(item => {
+        const info = getStudentRowMetric(item);
+        return info && info.metric === currentMetric && matchesDateFilter(item);
+      });
+
+      document.getElementById('metricNote').textContent = hasStudentDataForMetric
+        ? ''
+        : `※ 현재 ${currentMetric === 'pm10' ? '미세먼지(PM10)' : '초미세먼지(PM2.5)'} 학생 측정 데이터가 없어 공식 측정소 데이터만 표시됩니다.`;
     }
 
     function setMetric(metric) {
@@ -579,11 +740,8 @@
         entry.marker.setIcon(createOfficialMarkerIcon(getColorByValue(value, currentMetric)));
       });
 
-      document.getElementById('metricNote').textContent =
-        metric === 'pm25'
-          ? '※ 학생 측정 데이터는 미세먼지(PM10) 값만 있어, 초미세먼지 보기에서는 공식 측정소 데이터만 표시됩니다.'
-          : '';
-
+      updateMetricNote();
+      renderList(currentData);
       renderLegend();
       rebuildGradientOverlays();
       updateOverlayMode();
@@ -647,11 +805,16 @@
     }
 
     function createInfoHtml(item) {
+      const info = getStudentRowMetric(item);
+      const label = info && info.metric === 'pm25' ? '초미세먼지(PM2.5)' : '미세먼지(PM10)';
+      const value = info ? info.value : '-';
+
       return `
     <div class="infobox">
       <strong>${escapeHtml(item['학교명'] || '학교명 없음')}</strong><br>
-      미세먼지: ${escapeHtml(item['미세먼지'])}<br>
-      측정자: ${escapeHtml(item['측정자 이름'])}
+      ${label}: ${escapeHtml(value)}<br>
+      측정자: ${escapeHtml(item['측정자이름'])}<br>
+      측정시간: ${escapeHtml(item['측정시간'] || '-')}
     </div>
   `;
     }
@@ -659,21 +822,29 @@
     function renderList(data) {
       const list = document.getElementById('list');
 
-      if (!data.length) {
+      const visibleData = data.filter(item => {
+        const info = getStudentRowMetric(item);
+        return info && info.metric === currentMetric && matchesDateFilter(item);
+      });
+
+      if (!visibleData.length) {
         list.innerHTML = '<div class="empty">표시할 데이터가 없습니다.</div>';
         return;
       }
 
-      list.innerHTML = data.map((item, index) => {
-        const color = getColorByValue(item['미세먼지'], 'pm10');
+      const metricLabel = currentMetric === 'pm10' ? '미세먼지(PM10)' : '초미세먼지(PM2.5)';
+
+      list.innerHTML = visibleData.map((item, index) => {
+        const info = getStudentRowMetric(item);
+        const color = getColorByValue(info.value, info.metric);
 
         return `
       <div class="card" data-index="${index}" style="cursor:pointer;">
         <strong>${escapeHtml(item['학교명'] || '학교명 없음')}</strong>
-        <div class="meta">측정자: ${escapeHtml(item['측정자 이름'])}</div>
+        <div class="meta">측정자: ${escapeHtml(item['측정자이름'])} · ${escapeHtml(item['측정시간'] || '시간 미기록')}</div>
         <div class="value" style="background:${color}22; color:#111827; border:1px solid ${color}55;">
           <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${color};margin-right:6px;vertical-align:middle;"></span>
-          미세먼지: ${escapeHtml(item['미세먼지'])}
+          ${metricLabel}: ${info.value}
         </div>
       </div>
     `;
@@ -681,9 +852,9 @@
 
       const cards = list.querySelectorAll('.card');
 
-      cards.forEach(card => {
-        const index = Number(card.dataset.index);
-        const entry = markerEntries[index];
+      cards.forEach((card, cardIndex) => {
+        const item = visibleData[cardIndex];
+        const entry = markerEntries.find(e => e.item === item);
         if (!entry) return;
 
         // PC: 카드에 마우스 올리면 지도 점의 정보창 표시
@@ -727,11 +898,13 @@
         const validData = rawData.filter(item => {
           const lat = Number(item['위도']);
           const lng = Number(item['경도']);
-          const dust = Number(item['미세먼지']);
-          return !Number.isNaN(lat) && !Number.isNaN(lng) && !Number.isNaN(dust);
+          if (Number.isNaN(lat) || Number.isNaN(lng)) return false;
+          return getStudentRowMetric(item) !== null;
         });
 
         currentData = validData;
+
+        populateDateFilter(validData);
 
         clearMap();
 
@@ -740,8 +913,8 @@
           const lng = Number(item['경도']);
           const position = new naver.maps.LatLng(lat, lng);
 
-          const dust = Number(item['미세먼지']);
-          const color = getColorByValue(dust, 'pm10');
+          const info = getStudentRowMetric(item);
+          const color = getColorByValue(info.value, info.metric);
 
           const marker = new naver.maps.Marker({
             position,
@@ -775,10 +948,11 @@
 
           markers.push(marker);
           infoWindows.push(infoWindow);
-          markerEntries.push({ item, marker, infoWindow });
+          markerEntries.push({ item, rowMetric: info.metric, rowValue: info.value, marker, infoWindow });
         });
 
         renderList(validData);
+        updateMetricNote();
         rebuildGradientOverlays();
 
         if (validData.length) fitAllMarkers();
@@ -923,27 +1097,51 @@
     function createAddDataForm(latlng) {
       const wrapper = document.createElement('div');
       wrapper.className = 'add-form';
+      let formMetric = currentMetric;
 
       wrapper.innerHTML = `
-        <strong>이 위치에 측정값 추가</strong>
-        <div class="meta">위도 ${latlng.lat().toFixed(5)}, 경도 ${latlng.lng().toFixed(5)}</div>
+        <div class="add-form-header">📍 이 위치에 측정값 추가</div>
+        <div class="add-form-coords">위도 ${latlng.lat().toFixed(5)} · 경도 ${latlng.lng().toFixed(5)}</div>
+
         <label>학교명</label>
         <input type="text" class="f-school" placeholder="예: OO초등학교">
+
         <label>측정자 이름</label>
-        <input type="text" class="f-name" placeholder="이름">
-        <label>미세먼지(PM10) 값</label>
+        <input type="text" class="f-name" placeholder="이름을 입력하세요">
+
+        <label>측정 항목</label>
+        <div class="add-form-metric">
+          <button type="button" class="add-metric-btn" data-metric="pm10">미세먼지<br><small>PM10</small></button>
+          <button type="button" class="add-metric-btn" data-metric="pm25">초미세먼지<br><small>PM2.5</small></button>
+        </div>
+
+        <label>측정값 (㎍/㎥)</label>
         <input type="number" class="f-dust" placeholder="숫자만 입력">
+
         <div class="add-form-actions">
-          <button type="button" class="f-submit">저장</button>
-          <button type="button" class="secondary f-cancel">취소</button>
+          <button type="button" class="add-form-submit">저장하기</button>
+          <button type="button" class="add-form-cancel">취소</button>
         </div>
         <div class="add-form-status"></div>
       `;
 
-      const statusEl = wrapper.querySelector('.add-form-status');
-      const submitBtn = wrapper.querySelector('.f-submit');
+      const metricBtns = wrapper.querySelectorAll('.add-metric-btn');
+      const syncMetricButtons = () => {
+        metricBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.metric === formMetric));
+      };
+      syncMetricButtons();
 
-      wrapper.querySelector('.f-cancel').addEventListener('click', () => {
+      metricBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          formMetric = btn.dataset.metric;
+          syncMetricButtons();
+        });
+      });
+
+      const statusEl = wrapper.querySelector('.add-form-status');
+      const submitBtn = wrapper.querySelector('.add-form-submit');
+
+      wrapper.querySelector('.add-form-cancel').addEventListener('click', () => {
         addDataInfoWindow.close();
       });
 
@@ -953,7 +1151,7 @@
         const dust = wrapper.querySelector('.f-dust').value.trim();
 
         if (!school || !name || !dust || Number.isNaN(Number(dust))) {
-          statusEl.textContent = '학교명, 측정자 이름, 미세먼지 값을 모두 입력해주세요.';
+          statusEl.textContent = '학교명, 측정자 이름, 측정값을 모두 입력해주세요.';
           return;
         }
 
@@ -973,8 +1171,9 @@
               '위도': latlng.lat(),
               '경도': latlng.lng(),
               '학교명': school,
-              '측정자 이름': name,
-              '미세먼지': dust
+              '측정자이름': name,
+              '미세먼지(PM10)': formMetric === 'pm10' ? dust : '',
+              '초미세먼지(PM2.5)': formMetric === 'pm25' ? dust : ''
             })
           });
 
