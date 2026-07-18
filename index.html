@@ -110,6 +110,95 @@
       background: #2563eb;
     }
 
+    .metric-toggle {
+      background: #e5e7eb;
+      color: #374151;
+    }
+
+    .metric-toggle.active {
+      background: #16a34a;
+      color: white;
+    }
+
+    .legend {
+      margin-bottom: 10px;
+    }
+
+    .legend-title {
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 6px;
+    }
+
+    .legend-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .legend-item {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: #4b5563;
+      line-height: 1.3;
+    }
+
+    .legend-swatch {
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+
+    .metric-note {
+      margin: 0 0 12px;
+      font-size: 12px;
+      color: #b45309;
+      min-height: 1em;
+    }
+
+    .add-form {
+      min-width: 220px;
+      font-size: 13px;
+    }
+
+    .add-form label {
+      display: block;
+      font-size: 12px;
+      color: #4b5563;
+      margin-top: 6px;
+    }
+
+    .add-form input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 6px 8px;
+      margin-top: 4px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+
+    .add-form-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .add-form-actions button {
+      flex: 1;
+      padding: 6px 8px;
+      font-size: 12px;
+    }
+
+    .add-form-status {
+      margin-top: 6px;
+      font-size: 11px;
+      color: #6b7280;
+    }
+
     .status {
       margin-bottom: 16px;
       font-size: 13px;
@@ -212,13 +301,21 @@
     <aside class="panel">
       <h1>인천 공동탐구 지도</h1>
       <p class="desc">
-        구글 시트에 입력된 위도·경도·미세먼지 데이터와 공공데이터포털 실시간 측정소 데이터를 함께 네이버 지도에 표시합니다.
+        구글 시트에 입력된 위도·경도·미세먼지 데이터와 공공데이터포털 실시간 측정소 데이터를 함께 네이버 지도에 표시합니다. 지도를 클릭하면 그 위치에 새 측정값을 바로 추가할 수 있습니다.
       </p>
 
       <div class="toolbar">
         <button onclick="refreshAll()">데이터 새로고침</button>
         <button class="secondary" onclick="fitAllMarkers()">전체 보기</button>
       </div>
+
+      <div class="toolbar">
+        <button class="metric-toggle active" data-metric="pm10" onclick="setMetric('pm10')">미세먼지 (PM10)</button>
+        <button class="metric-toggle" data-metric="pm25" onclick="setMetric('pm25')">초미세먼지 (PM2.5)</button>
+      </div>
+
+      <div id="legend" class="legend"></div>
+      <p id="metricNote" class="metric-note"></p>
 
       <div id="status" class="status">데이터를 불러오는 중...</div>
       <div id="officialStatus" class="status"></div>
@@ -235,13 +332,18 @@
     const msrstnBase = 'https://apis.data.go.kr/B552584/MsrstnInfoInqireSvc';
     const targetSido = '인천';
 
+    // 지도 클릭 → 데이터 추가 시 저장할 Apps Script 웹앱 URL (배포 후 이 값을 교체하세요)
+    const appsScriptUrl = 'PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE';
+
     const map = new naver.maps.Map('map', {
       center: new naver.maps.LatLng(37.4563, 126.7052),
       zoom: 11
     });
 
-    naver.maps.Event.addListener(map, 'click', () => {
+    naver.maps.Event.addListener(map, 'click', (e) => {
       infoWindows.forEach(iw => iw.close());
+      officialInfoWindows.forEach(iw => iw.close());
+      openAddDataForm(e.coord);
     });
 
     naver.maps.Event.addListener(map, 'zoom_changed', () => {
@@ -251,10 +353,48 @@
     let markers = [];
     let infoWindows = [];
     let markerEntries = [];
-    let averageCircles = [];
-    let valueRange = { min: 0, max: 0 };
+    let officialMarkers = [];
+    let officialInfoWindows = [];
+    let officialEntries = [];
+    let gradientOverlays = [];
     let currentData = [];
+    let currentOfficialData = [];
+    let currentMetric = 'pm10';
+    let addDataInfoWindow = null;
     const overlayZoomThreshold = 12;
+
+    // 미세먼지 등급 기준(㎍/㎥) - 좋음/보통/나쁨/매우나쁨 (환경부 기준)
+    const dustColorStops = {
+      pm10: [
+        { value: 0, color: [34, 197, 94] },
+        { value: 30, color: [34, 197, 94] },
+        { value: 80, color: [234, 179, 8] },
+        { value: 150, color: [249, 115, 22] },
+        { value: 300, color: [239, 68, 68] }
+      ],
+      pm25: [
+        { value: 0, color: [34, 197, 94] },
+        { value: 15, color: [34, 197, 94] },
+        { value: 35, color: [234, 179, 8] },
+        { value: 75, color: [249, 115, 22] },
+        { value: 150, color: [239, 68, 68] }
+      ]
+    };
+
+    const dustTierLabels = {
+      pm10: [
+        { label: '좋음', range: '0~30' },
+        { label: '보통', range: '31~80' },
+        { label: '나쁨', range: '81~150' },
+        { label: '매우나쁨', range: '151+' }
+      ],
+      pm25: [
+        { label: '좋음', range: '0~15' },
+        { label: '보통', range: '16~35' },
+        { label: '나쁨', range: '36~75' },
+        { label: '매우나쁨', range: '76+' }
+      ]
+    };
 
     function escapeHtml(text) {
       return String(text ?? '')
@@ -265,21 +405,43 @@
         .replace(/'/g, '&#039;');
     }
 
-    function clamp(value, min, max) {
-      return Math.min(max, Math.max(min, value));
-    }
+    function getColorByValue(value, metric = currentMetric) {
+      const numericValue = Number(value);
+      if (Number.isNaN(numericValue)) return 'rgb(148, 163, 184)';
 
-    function getColorByValue(value, min, max) {
-      if (Number.isNaN(value)) return '#6b7280';
+      const stops = dustColorStops[metric];
+      if (numericValue <= stops[0].value) return `rgb(${stops[0].color.join(',')})`;
 
-      if (max === min) {
-        return 'rgb(255, 255, 0)';
+      for (let i = 0; i < stops.length - 1; i++) {
+        const a = stops[i];
+        const b = stops[i + 1];
+        if (numericValue <= b.value) {
+          const t = (numericValue - a.value) / (b.value - a.value);
+          const rgb = a.color.map((channel, idx) => Math.round(channel + (b.color[idx] - channel) * t));
+          return `rgb(${rgb.join(',')})`;
+        }
       }
 
-      const ratio = clamp((value - min) / (max - min), 0, 1);
-      const red = Math.round(255 * ratio);
-      const green = Math.round(255 * (1 - ratio));
-      return `rgb(${red}, ${green}, 0)`;
+      return `rgb(${stops[stops.length - 1].color.join(',')})`;
+    }
+
+    function renderLegend() {
+      const legend = document.getElementById('legend');
+      const tiers = dustTierLabels[currentMetric];
+      const stops = dustColorStops[currentMetric];
+      const tierColors = [stops[1].color, stops[2].color, stops[3].color, stops[4].color];
+
+      legend.innerHTML = `
+        <div class="legend-title">${currentMetric === 'pm10' ? '미세먼지(PM10)' : '초미세먼지(PM2.5)'} 등급 (㎍/㎥)</div>
+        <div class="legend-row">
+          ${tiers.map((tier, idx) => `
+            <div class="legend-item">
+              <span class="legend-swatch" style="background: rgb(${tierColors[idx].join(',')});"></span>
+              <span>${tier.label}<br>${tier.range}</span>
+            </div>
+          `).join('')}
+        </div>
+      `;
     }
 
     function createMarkerIcon(color) {
@@ -299,105 +461,132 @@
       };
     }
 
-    function normalizeWeight(value, min, max) {
-      if (Number.isNaN(value)) return 0.1;
-      if (max === min) return 1;
-
-      const ratio = (value - min) / (max - min);
-      return 0.1 + 0.9 * Math.max(0, Math.min(1, ratio));
+    function createOfficialMarkerIcon(color) {
+      return {
+        content: `
+      <div style="
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
+        background: ${color};
+        border: 2px solid #1e293b;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.28);
+      "></div>
+    `,
+        anchor: new naver.maps.Point(9, 9)
+      };
     }
 
-    function aggregateNearbyPointsByAverage(data, cellSize = 0.005) {
+    function aggregateNearbyPointsByAverage(points, cellSize = 0.006) {
       const buckets = new Map();
 
-      data.forEach(item => {
-        const lat = Number(item['위도']);
-        const lng = Number(item['경도']);
-        const dust = Number(item['미세먼지']);
-
-        if (Number.isNaN(lat) || Number.isNaN(lng) || Number.isNaN(dust)) return;
+      points.forEach(point => {
+        const { lat, lng, value } = point;
+        if (Number.isNaN(lat) || Number.isNaN(lng) || Number.isNaN(value)) return;
 
         const latKey = Math.round(lat / cellSize);
         const lngKey = Math.round(lng / cellSize);
         const key = `${latKey}_${lngKey}`;
 
         if (!buckets.has(key)) {
-          buckets.set(key, {
-            latSum: 0,
-            lngSum: 0,
-            dustSum: 0,
-            count: 0
-          });
+          buckets.set(key, { latSum: 0, lngSum: 0, valueSum: 0, count: 0 });
         }
 
         const bucket = buckets.get(key);
         bucket.latSum += lat;
         bucket.lngSum += lng;
-        bucket.dustSum += dust;
+        bucket.valueSum += value;
         bucket.count += 1;
       });
 
       return Array.from(buckets.values()).map(bucket => ({
         lat: bucket.latSum / bucket.count,
         lng: bucket.lngSum / bucket.count,
-        avgDust: bucket.dustSum / bucket.count,
+        avgValue: bucket.valueSum / bucket.count,
         count: bucket.count
       }));
     }
 
-    function createAverageCircleOverlays(data) {
-      const aggregated = aggregateNearbyPointsByAverage(data, 0.005);
-      averageCircles = [];
+    function clearGradientOverlays() {
+      gradientOverlays.forEach(circle => circle.setMap(null));
+      gradientOverlays = [];
+    }
 
-      aggregated.forEach(item => {
-        const color = getColorByValue(item.avgDust, valueRange.min, valueRange.max);
-        const center = new naver.maps.LatLng(item.lat, item.lng);
+    function rebuildGradientOverlays() {
+      clearGradientOverlays();
 
-        averageCircles.push(
-          new naver.maps.Circle({
+      const studentPoints = currentMetric === 'pm10'
+        ? currentData.map(item => ({
+            lat: Number(item['위도']),
+            lng: Number(item['경도']),
+            value: Number(item['미세먼지'])
+          }))
+        : [];
+
+      const officialPoints = currentOfficialData.map(station => ({
+        lat: station.lat,
+        lng: station.lng,
+        value: Number(currentMetric === 'pm10' ? station.pm10Value : station.pm25Value)
+      }));
+
+      const validPoints = [...studentPoints, ...officialPoints]
+        .filter(p => !Number.isNaN(p.lat) && !Number.isNaN(p.lng) && !Number.isNaN(p.value));
+
+      const aggregated = aggregateNearbyPointsByAverage(validPoints, 0.006);
+      const ringCount = 10;
+
+      aggregated.forEach(point => {
+        const color = getColorByValue(point.avgValue, currentMetric);
+        const center = new naver.maps.LatLng(point.lat, point.lng);
+        const baseRadius = 550 + Math.min(point.count, 6) * 120;
+
+        for (let i = ringCount; i >= 1; i--) {
+          const t = i / ringCount;
+          gradientOverlays.push(new naver.maps.Circle({
             map: null,
             center,
-            radius: 1200,
+            radius: baseRadius * t,
             strokeWeight: 0,
             fillColor: color,
-            fillOpacity: 0.04
-          }),
-          new naver.maps.Circle({
-            map: null,
-            center,
-            radius: 900,
-            strokeWeight: 0,
-            fillColor: color,
-            fillOpacity: 0.08
-          }),
-          new naver.maps.Circle({
-            map: null,
-            center,
-            radius: 600,
-            strokeWeight: 0,
-            fillColor: color,
-            fillOpacity: 0.15
-          }),
-          new naver.maps.Circle({
-            map: null,
-            center,
-            radius: 350,
-            strokeWeight: 0,
-            fillColor: color,
-            fillOpacity: 0.25
-          })
-        );
+            fillOpacity: 0.32 * Math.pow(1 - t, 1.7)
+          }));
+        }
       });
     }
 
     function updateOverlayMode() {
       infoWindows.forEach(iw => iw.close());
+      officialInfoWindows.forEach(iw => iw.close());
 
       const zoom = map.getZoom();
-      const showMarkers = zoom >= overlayZoomThreshold;
+      const showPins = zoom >= overlayZoomThreshold;
 
-      markers.forEach(marker => marker.setMap(showMarkers ? map : null));
-      averageCircles.forEach(circle => circle.setMap(showMarkers ? null : map));
+      markers.forEach(marker => marker.setMap(showPins && currentMetric === 'pm10' ? map : null));
+      officialMarkers.forEach(marker => marker.setMap(showPins ? map : null));
+      gradientOverlays.forEach(circle => circle.setMap(showPins ? null : map));
+    }
+
+    function setMetric(metric) {
+      if (metric === currentMetric) return;
+      currentMetric = metric;
+
+      document.querySelectorAll('.metric-toggle').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.metric === metric);
+      });
+
+      officialEntries.forEach(entry => {
+        const value = currentMetric === 'pm10' ? entry.station.pm10Value : entry.station.pm25Value;
+        entry.marker.setIcon(createOfficialMarkerIcon(getColorByValue(value, currentMetric)));
+      });
+
+      document.getElementById('metricNote').textContent =
+        metric === 'pm25'
+          ? '※ 학생 측정 데이터는 미세먼지(PM10) 값만 있어, 초미세먼지 보기에서는 공식 측정소 데이터만 표시됩니다.'
+          : '';
+
+      renderLegend();
+      rebuildGradientOverlays();
+      updateOverlayMode();
     }
 
     function parseCSV(csvText) {
@@ -455,9 +644,6 @@
       infoWindows = [];
 
       markerEntries = [];
-
-      averageCircles.forEach(circle => circle.setMap(null));
-      averageCircles = [];
     }
 
     function createInfoHtml(item) {
@@ -479,11 +665,7 @@
       }
 
       list.innerHTML = data.map((item, index) => {
-        const color = getColorByValue(
-          Number(item['미세먼지']),
-          valueRange.min,
-          valueRange.max
-        );
+        const color = getColorByValue(item['미세먼지'], 'pm10');
 
         return `
       <div class="card" data-index="${index}" style="cursor:pointer;">
@@ -523,6 +705,7 @@
         });
       });
     }
+
     function fitAllMarkers() {
       if (!markers.length) return;
       const bounds = new naver.maps.LatLngBounds();
@@ -548,14 +731,7 @@
           return !Number.isNaN(lat) && !Number.isNaN(lng) && !Number.isNaN(dust);
         });
 
-        const dustValues = validData.map(item => Number(item['미세먼지']));
-        valueRange = {
-          min: dustValues.length ? Math.min(...dustValues) : 0,
-          max: dustValues.length ? Math.max(...dustValues) : 0
-        };
-
         currentData = validData;
-
 
         clearMap();
 
@@ -565,11 +741,11 @@
           const position = new naver.maps.LatLng(lat, lng);
 
           const dust = Number(item['미세먼지']);
-          const color = getColorByValue(dust, valueRange.min, valueRange.max);
+          const color = getColorByValue(dust, 'pm10');
 
           const marker = new naver.maps.Marker({
             position,
-            map,
+            map: null,
             title: item['학교명'] || '측정 지점',
             icon: createMarkerIcon(color)
           });
@@ -602,10 +778,8 @@
           markerEntries.push({ item, marker, infoWindow });
         });
 
-        const aggregatedHeatmapData = aggregateNearbyPointsByAverage(validData, 0.005);
-
         renderList(validData);
-        createAverageCircleOverlays(validData);
+        rebuildGradientOverlays();
 
         if (validData.length) fitAllMarkers();
         updateOverlayMode();
@@ -619,25 +793,6 @@
     }
 
     // ── 공공데이터포털(에어코리아) 실시간 측정소 연동 ──
-    let officialMarkers = [];
-    let officialInfoWindows = [];
-
-    function createOfficialMarkerIcon(color) {
-      return {
-        content: `
-      <div style="
-        width: 18px;
-        height: 18px;
-        border-radius: 5px;
-        background: ${color};
-        border: 2px solid #1e293b;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.28);
-      "></div>
-    `,
-        anchor: new naver.maps.Point(9, 9)
-      };
-    }
-
     function createOfficialInfoHtml(station) {
       return `
     <div class="infobox">
@@ -655,6 +810,8 @@
 
       officialInfoWindows.forEach(iw => iw.close());
       officialInfoWindows = [];
+
+      officialEntries = [];
     }
 
     async function fetchAirKoreaItems(url) {
@@ -708,14 +865,17 @@
           })
           .filter(Boolean);
 
+        currentOfficialData = officialData;
+
         clearOfficialMarkers();
 
         officialData.forEach(station => {
-          const color = getColorByValue(station.pm10Value, valueRange.min, valueRange.max);
+          const value = currentMetric === 'pm10' ? station.pm10Value : station.pm25Value;
+          const color = getColorByValue(value, currentMetric);
 
           const marker = new naver.maps.Marker({
             position: new naver.maps.LatLng(station.lat, station.lng),
-            map,
+            map: null,
             title: station.stationName + ' (공식 측정소)',
             icon: createOfficialMarkerIcon(color),
             zIndex: 50
@@ -746,7 +906,11 @@
 
           officialMarkers.push(marker);
           officialInfoWindows.push(infoWindow);
+          officialEntries.push({ station, marker, infoWindow });
         });
+
+        rebuildGradientOverlays();
+        updateOverlayMode();
 
         officialStatus.textContent = `공식 측정소 ${officialData.length}곳 표시 중 (${new Date().toLocaleString('ko-KR')})`;
       } catch (error) {
@@ -755,11 +919,102 @@
       }
     }
 
+    // ── 지도 클릭으로 새 측정값 추가 ──
+    function createAddDataForm(latlng) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'add-form';
+
+      wrapper.innerHTML = `
+        <strong>이 위치에 측정값 추가</strong>
+        <div class="meta">위도 ${latlng.lat().toFixed(5)}, 경도 ${latlng.lng().toFixed(5)}</div>
+        <label>학교명</label>
+        <input type="text" class="f-school" placeholder="예: OO초등학교">
+        <label>측정자 이름</label>
+        <input type="text" class="f-name" placeholder="이름">
+        <label>미세먼지(PM10) 값</label>
+        <input type="number" class="f-dust" placeholder="숫자만 입력">
+        <div class="add-form-actions">
+          <button type="button" class="f-submit">저장</button>
+          <button type="button" class="secondary f-cancel">취소</button>
+        </div>
+        <div class="add-form-status"></div>
+      `;
+
+      const statusEl = wrapper.querySelector('.add-form-status');
+      const submitBtn = wrapper.querySelector('.f-submit');
+
+      wrapper.querySelector('.f-cancel').addEventListener('click', () => {
+        addDataInfoWindow.close();
+      });
+
+      submitBtn.addEventListener('click', async () => {
+        const school = wrapper.querySelector('.f-school').value.trim();
+        const name = wrapper.querySelector('.f-name').value.trim();
+        const dust = wrapper.querySelector('.f-dust').value.trim();
+
+        if (!school || !name || !dust || Number.isNaN(Number(dust))) {
+          statusEl.textContent = '학교명, 측정자 이름, 미세먼지 값을 모두 입력해주세요.';
+          return;
+        }
+
+        if (appsScriptUrl.includes('PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE')) {
+          statusEl.textContent = '아직 저장 기능(Apps Script)이 연결되지 않았습니다.';
+          return;
+        }
+
+        submitBtn.disabled = true;
+        statusEl.textContent = '저장 중...';
+
+        try {
+          const response = await fetch(appsScriptUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              '위도': latlng.lat(),
+              '경도': latlng.lng(),
+              '학교명': school,
+              '측정자 이름': name,
+              '미세먼지': dust
+            })
+          });
+
+          if (!response.ok) throw new Error('저장 요청 실패: ' + response.status);
+
+          statusEl.textContent = '저장되었습니다! 잠시 후 지도에 반영됩니다.';
+          setTimeout(() => {
+            addDataInfoWindow.close();
+            refreshAll();
+          }, 1200);
+        } catch (error) {
+          console.error(error);
+          statusEl.textContent = '저장 실패: ' + error.message;
+          submitBtn.disabled = false;
+        }
+      });
+
+      return wrapper;
+    }
+
+    function openAddDataForm(latlng) {
+      if (!addDataInfoWindow) {
+        addDataInfoWindow = new naver.maps.InfoWindow({
+          content: document.createElement('div'),
+          borderWidth: 1,
+          backgroundColor: '#fff',
+          anchorSize: new naver.maps.Size(12, 14)
+        });
+      }
+
+      addDataInfoWindow.setContent(createAddDataForm(latlng));
+      addDataInfoWindow.open(map, latlng);
+    }
+
     async function refreshAll() {
       await loadData();
       await loadAirKoreaData();
     }
 
+    renderLegend();
     refreshAll();
   </script>
 </body>
